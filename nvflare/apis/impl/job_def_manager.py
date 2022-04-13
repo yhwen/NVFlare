@@ -16,11 +16,13 @@ import datetime
 import os
 import pathlib
 import shutil
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
+from nvflare.apis.event_type import EventType
 from nvflare.apis.fl_context import FLContext
 from nvflare.apis.job_def import Job, JobMetaKey, job_from_meta
 from nvflare.apis.job_def_manager_spec import JobDefManagerSpec, RunStatus
@@ -82,7 +84,31 @@ class _ReviewerFilter(_JobFilter):
         return True
 
 
-# TODO:: use try block around storage calls
+class _TempJobDataFromStore:
+    """Handles temporarily extracting job contents from store and then cleaning up the used temp space."""
+
+    def __init__(self, store):
+        self.store = store
+
+    def __call__(self, job_uri, job_id_dir):
+        self.job_uri = job_uri
+        self.job_id_dir = job_id_dir
+        return self
+
+    def __enter__(self):
+        data_bytes = self.store.get_data(self.job_uri)
+        if os.path.exists(self.job_id_dir):
+            shutil.rmtree(self.job_id_dir)
+        os.mkdir(self.job_id_dir)
+        unzip_all_from_bytes(data_bytes, self.job_id_dir)
+        return self.job_id_dir
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if os.path.exists(self.job_id_dir):
+            shutil.rmtree(self.job_id_dir)
+
+
+# TODO:: use try block around storage calls, or is the exception thrown better handled at a layer above this
 
 
 class SimpleJobDefManager(JobDefManagerSpec):
@@ -95,6 +121,15 @@ class SimpleJobDefManager(JobDefManagerSpec):
         if not os.path.isdir(temp_dir):
             raise ValueError("temp_dir {} is not a valid dir".format(temp_dir))
         self.temp_dir = temp_dir
+        self.temp_dir_lock = threading.Lock()
+
+    def handle_event(self, event_type: str, fl_ctx: FLContext):
+        if event_type == EventType.SYSTEM_START:
+            for f in os.listdir(self.temp_dir):
+                try:
+                    shutil.rmtree(os.path.join(self.temp_dir, f))
+                except Exception as e:
+                    print("failed to delete in temp_dir for cleaning up directory:{}".format(e))
 
     def _get_job_store(self, fl_ctx):
         engine = fl_ctx.get_engine()
@@ -164,34 +199,33 @@ class SimpleJobDefManager(JobDefManagerSpec):
         return self.get_job(jid, fl_ctx)
 
     def get_app(self, job: Job, app_name: str, fl_ctx: FLContext) -> bytes:
-        job_id_dir = self._load_job_data_from_store(job.job_id, fl_ctx)
-        job_folder = os.path.join(job_id_dir, job.meta[JobMetaKey.JOB_FOLDER_NAME.value])
-        return zip_directory_to_bytes(job_folder, app_name)
+        with self.temp_dir_lock:
+            job_data_accessor = _TempJobDataFromStore(store=self._get_job_store(fl_ctx))
+            with job_data_accessor(
+                job_uri=self.job_uri(job.job_id), job_id_dir=os.path.join(self.temp_dir, job.job_id)
+            ) as job_id_dir:
+                job_folder = os.path.join(job_id_dir, job.meta[JobMetaKey.JOB_FOLDER_NAME.value])
+                app_content = zip_directory_to_bytes(job_folder, app_name)
+        return app_content
 
     def get_apps(self, job: Job, fl_ctx: FLContext) -> Dict[str, bytes]:
-        job_id_dir = self._load_job_data_from_store(job.job_id, fl_ctx)
-        job_folder = os.path.join(job_id_dir, job.meta[JobMetaKey.JOB_FOLDER_NAME.value])
-        result_dict = {}
-        for app in job.get_deployment():
-            result_dict[app] = zip_directory_to_bytes(job_folder, app)
+        with self.temp_dir_lock:
+            job_data_accessor = _TempJobDataFromStore(store=self._get_job_store(fl_ctx))
+            with job_data_accessor(
+                job_uri=self.job_uri(job.job_id), job_id_dir=os.path.join(self.temp_dir, job.job_id)
+            ) as job_id_dir:
+                job_folder = os.path.join(job_id_dir, job.meta[JobMetaKey.JOB_FOLDER_NAME.value])
+                result_dict = {}
+                for app in job.get_deployment():
+                    result_dict[app] = zip_directory_to_bytes(job_folder, app)
         return result_dict
-
-    def _load_job_data_from_store(self, jid: str, fl_ctx: FLContext):
-        store = self._get_job_store(fl_ctx)
-        data_bytes = store.get_data(self.job_uri(jid))
-        job_id_dir = os.path.join(self.temp_dir, jid)
-        if os.path.exists(job_id_dir):
-            shutil.rmtree(job_id_dir)
-        os.mkdir(job_id_dir)
-        unzip_all_from_bytes(data_bytes, job_id_dir)
-        return job_id_dir
 
     def get_content(self, jid: str, fl_ctx: FLContext) -> bytes:
         store = self._get_job_store(fl_ctx)
         return store.get_data(self.job_uri(jid))
 
     def set_status(self, jid: str, status: RunStatus, fl_ctx: FLContext):
-        meta = {JobMetaKey.STATUS.value: status}
+        meta = {JobMetaKey.STATUS.value: status.value}
         store = self._get_job_store(fl_ctx)
         store.update_meta(uri=self.job_uri(jid), meta=meta, replace=False)
 
