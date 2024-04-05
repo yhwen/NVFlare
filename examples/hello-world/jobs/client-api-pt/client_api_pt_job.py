@@ -89,7 +89,7 @@ class FedJob:
 
         component = FilePipe(
             mode=Mode.PASSIVE,
-            root_path=f"{self.workspace}/{self.job_id}/{site_name}"
+            root_path=f"{self.workspace}/{self.job_id}-1/{site_name}"
         )
         client_app.add_component("metrics_pipe", component)
 
