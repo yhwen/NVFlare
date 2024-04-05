@@ -16,7 +16,7 @@ from cifar10trainer import Cifar10Trainer
 from cifar10validator import Cifar10Validator
 from nvflare.apis.dxo import DataKind
 from nvflare.app_common.aggregators import InTimeAccumulateWeightedAggregator
-from nvflare.app_common.job.fed_app_config import ClientAppConfig, ServerAppConfig, FedApp
+from nvflare.app_common.job.fed_app_config import ClientAppConfig, ServerAppConfig, FedAppConfig
 from nvflare.app_common.job.fed_job_config import FedJobConfig
 from nvflare.app_common.shareablegenerators import FullModelShareableGenerator
 from nvflare.app_common.widgets.validation_json_generator import ValidationJsonGenerator
@@ -40,10 +40,10 @@ class HelloPTJob:
         server_app = self._create_server_app()
         client_app = self._create_client_app()
 
-        app = FedApp(server_app=server_app, client_app=client_app)
+        app = FedAppConfig(server_app=server_app, client_app=client_app)
         job.add_fed_app("app", app)
 
-        # app = FedApp(client_app=client_app)
+        # app = FedAppConfig(client_app=client_app)
         # job.add_fed_app("client_app", app)
         # job.set_site_app("server", "app")
         # job.set_site_app("site-1", "app")

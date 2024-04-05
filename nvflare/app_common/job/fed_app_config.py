@@ -60,7 +60,7 @@ class ServerAppConfig(BaseAppConfig):
         self.ids.append(cid)
 
 
-class FedApp:
+class FedAppConfig:
     def __init__(self, server_app: ServerAppConfig = None, client_app: ClientAppConfig = None) -> None:
         super().__init__()
 
