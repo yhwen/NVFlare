@@ -18,7 +18,7 @@ from typing import Dict
 import os
 
 from nvflare import SimulatorRunner
-from nvflare.app_common.job.fed_app import FedApp
+from nvflare.app_common.job.fed_app_config import FedApp
 from nvflare.private.fed.app.fl_conf import FL_PACKAGES
 
 CONFIG = "config"
@@ -28,7 +28,7 @@ FED_CLIENT_JSON = "config_fed_client.json"
 META_JSON = "meta.json"
 
 
-class FedJob:
+class FedJobConfig:
     def __init__(self, job_name, min_clients, mandatory_clients=None) -> None:
         super().__init__()
 
