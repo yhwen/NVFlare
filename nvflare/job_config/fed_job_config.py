@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 from enum import Enum
+from multiprocessing import Process
 from tempfile import TemporaryDirectory
 from typing import Dict
 
@@ -30,6 +31,18 @@ CUSTOM = "custom"
 FED_SERVER_JSON = "config_fed_server.json"
 FED_CLIENT_JSON = "config_fed_client.json"
 META_JSON = "meta.json"
+
+
+def simulator_run_job(clients, gpu, job_folder, n_clients, threads, workspace):
+    simulator = SimulatorRunner(
+        job_folder=job_folder,
+        workspace=workspace,
+        clients=clients,
+        n_clients=n_clients,
+        threads=threads,
+        gpu=gpu,
+    )
+    simulator.run()
 
 
 class FedJobConfig:
@@ -125,15 +138,11 @@ class FedJobConfig:
         with TemporaryDirectory() as job_root:
             self.generate_job_config(job_root)
 
-            simulator = SimulatorRunner(
-                job_folder=os.path.join(job_root, self.job_name),
-                workspace=workspace,
-                clients=clients,
-                n_clients=n_clients,
-                threads=threads,
-                gpu=gpu,
-            )
-            simulator.run()
+            job_folder = os.path.join(job_root, self.job_name)
+
+            process = Process(target=simulator_run_job, args=(clients, gpu, job_folder, n_clients, threads, workspace))
+            process.start()
+            process.join()
 
     def _get_server_app(self, config_dir, custom_dir, fed_app):
         server_app = {"format_version": 2, "workflows": []}
